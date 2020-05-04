@@ -6,11 +6,9 @@ var WebsocketAccessory = require('./lib/accessory.js').Accessory;
 var Websocket = require('./lib/websocket.js').Websocket;
 
 var Accessory, Service, Characteristic, UUIDGen;
-var cachedAccessories = 0;
 
-var platform_name = "websocket";
+var platform_name = "deconz-websocket";
 var plugin_name = "homebridge-" + platform_name;
-var storagePath;
 
 module.exports = function(homebridge) {
   console.log("homebridge API version: " + homebridge.version);
@@ -21,7 +19,6 @@ module.exports = function(homebridge) {
   Characteristic = homebridge.hap.Characteristic;
   UUIDGen = homebridge.hap.uuid; // Universally Unique IDentifier
   
-  storagePath = homebridge.user.storagePath();
   
   homebridge.registerPlatform(plugin_name, platform_name, WebsocketPlatform, true);
 }
@@ -32,14 +29,18 @@ function WebsocketPlatform(log, config, api) {
   this.accessories = {};
   this.hap_accessories = {};
   
-  this.log.debug("storagePath = %s", storagePath);
   this.log.debug("config = %s", JSON.stringify(config));
   
   if (typeof(config) !== "undefined" && config !== null) {
-    this.port = config.port || {"port": 4050};
+    this.port = config.port || {"port": 443};
   } else {
     this.log.error("config undefined or null!");
-    this.log("storagePath = %s", storagePath);
+    process.exit(1);
+  }
+
+  if(config.ip === "undefined" || config.ip  === null)
+  {
+    this.log.error("ip undefined or null");
     process.exit(1);
   }
      
@@ -49,20 +50,14 @@ function WebsocketPlatform(log, config, api) {
   var params = {
     "log": this.log,
     "plugin_name": plugin_name,
+    "ip": config.ip,
     "port": this.port,
     "accessories": this.accessories,
+    "deviceSettings": config.deviceSettings,
     "Characteristic": Characteristic,
     "addAccessory": this.addAccessory.bind(this),
-    "removeAccessory": this.removeAccessory.bind(this),
-    "getAccessories": this.getAccessories.bind(this)
+    "removeAccessory": this.removeAccessory.bind(this)
   }
-  this.Websocket = new Websocket(params);
-
-  Utils.read_npmVersion(plugin_name, function(npm_version) {
-    if (npm_version > plugin_version) {
-      this.log("A new version %s is avaiable", npm_version);
-    }
-  }.bind(this));
 
   if (api) {
     this.api = api;
@@ -70,14 +65,36 @@ function WebsocketPlatform(log, config, api) {
     this.api.on('didFinishLaunching', function() {
       this.log("Plugin - DidFinishLaunching");
      
-     this.Websocket.startServer();
+      // Add accessory in config
+      var deviceSettings = {};
+      for(var i = 0; i< config.deviceSettings.length; i++)
+      {
+        var setting = config.deviceSettings[i];
+        deviceSettings[setting.id] = setting;
+        // Create the mapping device
+        switch(setting.type)
+        {
+          case "toggleSwitch":
+            var accessoryDef = {};
+            accessoryDef.name = setting.name;
+            accessoryDef.service = "Switch";
+            this.addAccessory(accessoryDef);
+            break;
+            default:
+              this.log.warn("Unknown type of device " + setting.id + "with type " + setting.type);
+              break;
+
+        }
+     }
+
+     this.Websocket.startClient(deviceSettings);
              
-      this.log.debug("Number of cached Accessories: %s", cachedAccessories);
       this.log("Number of Accessories: %s", Object.keys(this.accessories).length);
 
     }.bind(this));
-    //this.log.debug("WebsocketPlatform %s", JSON.stringify(this.accessories));
   }
+
+  this.Websocket = new Websocket(params);
 }
 
 WebsocketPlatform.prototype.addAccessory = function(accessoryDef) {
@@ -120,31 +137,13 @@ WebsocketPlatform.prototype.addAccessory = function(accessoryDef) {
     ack = false;
     message = "name '" + name + "' is already used.";
   }
+
   this.log("addAccessory %s", message);
-  this.Websocket.sendAck(ack, message);
-  if (ack) {
-    var now = new Date().toISOString().slice(0,16);
-    var plugin_version = Utils.readPluginVersion();
-    var plugin_v = "v" + plugin_version;
-    if (typeof manufacturer === "undefined") {
-      manufacturer = plugin_name;
-    }
-    if (typeof model === "undefined") {
-      model = plugin_v;
-    }
-    if (typeof serialnumber === "undefined") {
-      serialnumber = now;
-    }
-    if (typeof firmwarerevision === "undefined") {
-      firmwarerevision = plugin_version;
-    }
-    this.setAccessoryInformation({"name":name,"manufacturer":manufacturer,"model":model,"serialnumber":serialnumber,"firmwarerevision":firmwarerevision}, false);
-  }
 }
 
 WebsocketPlatform.prototype.setAccessoryInformation = function(accessory) {
 
-  this.log.debug("WebsocketPlatform.setAccessoryInformation %s", JSON.stringify(accessory));
+  this.log("WebsocketPlatform.setAccessoryInformation %s", JSON.stringify(accessory));
   var message;
   var ack;
   var name = accessory.name;
@@ -177,33 +176,36 @@ WebsocketPlatform.prototype.setAccessoryInformation = function(accessory) {
       message = "accessory '" + name + "', accessoryinforrmation properties undefined.";
     }
   }
-  this.Websocket.sendAck(ack, message);
 } 
   
 WebsocketPlatform.prototype.configureAccessory = function(accessory) {
 
   //this.log.debug("configureAccessory %s", JSON.stringify(accessory.services, null, 2));
   
-  cachedAccessories++;
   var name = accessory.displayName;
   var uuid = accessory.UUID;
     
   var accessoryDef = {};
   accessoryDef.name = name;
   accessoryDef.service = accessory.context.service_name;
+
+  var i_accessory = this.accessories[name];
+
+  if(i_accessory)
+  {
+    return;
+  }
   
-  if (this.accessories[name]) {
-    this.log.error("configureAccessory %s UUID %s already used.", name, uuid);
-    process.exit(1);
+  if (i_accessory === undefined || i_accessory === null) {
+    i_accessory = new WebsocketAccessory(this.buildParams(accessoryDef));
+  
+    this.accessories[name] = i_accessory;
+    this.hap_accessories[name] = accessory;
   }
   
   accessory.reachable = true;
     
-  var i_accessory = new WebsocketAccessory(this.buildParams(accessoryDef));
   i_accessory.configureAccessory(accessory);
-  
-  this.accessories[name] = i_accessory;
-  this.hap_accessories[name] = accessory;
 }
 
 WebsocketPlatform.prototype.removeAccessory = function(name) {
@@ -226,32 +228,8 @@ WebsocketPlatform.prototype.removeAccessory = function(name) {
   this.Websocket.sendAck(ack, message);
 }
 
-WebsocketPlatform.prototype.getAccessories = function(name) {
-
-  var accessories = {};
-  var def = {};
-  var service, characteristics;
-  
-  switch (name) {
-    case "all":
-      for (var k in this.accessories) {
-        //this.log("getAccessories %s", JSON.stringify(this.accessories[k], null, 2));
-        service = this.accessories[k].service_name;
-        characteristics =  this.accessories[k].i_value;
-        def = {"service": service, "characteristics": characteristics};
-        accessories[k] = def;
-      }
-    break;
-    
-    default:
-      service = this.accessories[name].service_name;
-      characteristics =  this.accessories[name].i_value;
-      def = {"service": service, "characteristics": characteristics};
-      accessories[name] = def;
-  }
-
-  //this.log("getAccessory %s", JSON.stringify(accessories, null, 2));
-  this.Websocket.sendAccessories(accessories);
+WebsocketPlatform.prototype.getAccessory = function(name) {
+  return this.accessories[name];
 }
 
 WebsocketPlatform.prototype.buildParams = function (accessoryDef) {
@@ -266,4 +244,3 @@ WebsocketPlatform.prototype.buildParams = function (accessoryDef) {
   //this.log.debug("configureAccessories %s", JSON.stringify(params.accessory_config));
   return params;
 }
-

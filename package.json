@@ -1,25 +1,24 @@
 {
-  "name": "homebridge-websocket",
-  "version": "0.2.2",
-  "description": "Websocket Plugin for Homebridge",
+  "name": "homebridge-deconz-websocket",
+  "version": "0.0.23",
+  "description": "Deconz websocket support for Homebridge",
   "license": "ISC",
-  "author": {
-    "name": "flurin"
-  },
+  "author": "phding",
   "keywords": [
     "homebridge",
     "homebridge-plugin",
     "homekit",
     "siri",
     "websocket",
-    "node-RED"
+    "node-RED",
+    "deconz"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/cflurin/homebridge-websocket.git"
+    "url": "git+https://github.com/phding/homebridge-deconz-websocket.git"
   },
   "bugs": {
-    "url": "http://github.com/cflurin/homebridge-websocket/issues"
+    "url": "http://github.com/phding/homebridge-deconz-websocket/issues"
   },
   "engines": {
     "node": ">=4.3.2",
@@ -29,5 +28,13 @@
     "request": "^2.65.0",
     "express": "^4.13.3",
     "ws": "^6.1.2"
+  },
+  "homepage": "https://github.com/phding/homebridge-deconz-websocket#readme",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
   }
 }
